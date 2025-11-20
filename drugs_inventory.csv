@@ -1,0 +1,7 @@
+id,name,unit,import_qty,sold_qty,stock,import_price,sell_price,expiry
+1,Paracetamol 500mg,Viên,500,280,220,1500,3000,2026-12-31
+2,Amoxicillin 500mg,Viên,300,150,150,8000,15000,2026-08-15
+3,Vitamin C 1000mg,Viên,800,620,180,2000,5000,2027-03-20
+4,Thuốc ho Prospan,Chai,200,90,110,85000,120000,2026-11-10
+5,Panadol Extra,Vỉ,400,320,80,25000,38000,2026-09-30
+6,Berberin 100mg,Viên,600,350,250,5000,10000,2027-01-15
