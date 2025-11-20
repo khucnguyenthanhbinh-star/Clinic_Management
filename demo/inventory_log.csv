@@ -1,0 +1,8 @@
+time,action,drug_name,quantity,price
+20/11/2025 15:09,Xuất kho,Amoxicillin 500mg,10,15000
+20/11/2025 15:06,Xuất kho,Paracetamol 500mg,5,3000
+20/11/2025 15:06,Xuất kho,Panadol Extra,2,38000
+20/11/2025 14:58,Xuất kho,Paracetamol 500mg,20,3000
+20/11/2025 14:46,Xuất kho,Berberin 100mg,10,10000
+20/11/2025 15:12,Nhập kho,Berberin,10,2000
+20/11/2025 15:17,Nhập kho,Melatonin,300,5000
