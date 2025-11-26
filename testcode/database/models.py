@@ -38,7 +38,9 @@ class ClinicDatabase:
                 time TEXT,
                 reason TEXT,
                 status TEXT,
-                FOREIGN KEY(patient_username) REFERENCES users(username)
+                doctor_username TEXT,
+                FOREIGN KEY(patient_username) REFERENCES users(username),
+                FOREIGN KEY(doctor_username) REFERENCES users(username)
             )
         """)
         self.cursor.execute("""
@@ -52,6 +54,15 @@ class ClinicDatabase:
             )
         """)
         self.conn.commit()
+        
+        # Ensure backward compatibility: add doctor_username if missing
+        try:
+            cols = [c[1] for c in self.cursor.execute("PRAGMA table_info(appointments)").fetchall()]
+            if "doctor_username" not in cols:
+                self.cursor.execute("ALTER TABLE appointments ADD COLUMN doctor_username TEXT")
+                self.conn.commit()
+        except Exception:
+            pass
 
     def seed_data(self):
         pass
@@ -115,9 +126,10 @@ class ClinicDatabase:
         rows = self.cursor.fetchall()
         result = []
         for r in rows:
+            doctor = r[6] if len(r) > 6 else None
             result.append({
                 "id": r[0], "patient": r[1], "date": r[2], 
-                "time": r[3], "reason": r[4], "status": r[5]
+                "time": r[3], "reason": r[4], "status": r[5], "doctor": doctor
             })
         return result
 
@@ -146,18 +158,88 @@ class ClinicDatabase:
     def close(self):
         self.conn.close()
 
+    # ... (Các hàm cũ giữ nguyên) ...
+
+    # --- BỔ SUNG HÀM HỦY LỊCH ---
     def cancel_appointment(self, appointment_id):
         # Cập nhật trạng thái thành 'Đã hủy'
         self.cursor.execute("UPDATE appointments SET status = 'Đã hủy' WHERE id = ?", (appointment_id,))
         self.conn.commit()
 
-    def finish_examination(self, appointment_id, full_report_text):
-        """
-        Lưu kết quả khám vào cột 'reason' (hoặc cột result nếu có)
-        và chuyển trạng thái thành 'Hoan thanh'
-        """
-        self.cursor.execute(
-            "UPDATE appointments SET status = 'Hoan thanh', reason = ? WHERE id = ?", 
-            (full_report_text, appointment_id)
-        )
+    # --- ADMIN MANAGEMENT METHODS ---
+    def get_all_invoices(self):
+        """Get all invoices for admin overview"""
+        self.cursor.execute("SELECT id, patient_username, service_name, amount, status, created_at FROM invoices ORDER BY id DESC")
+        rows = self.cursor.fetchall()
+        return [{"id": r[0], "patient": r[1], "service": r[2], "amount": r[3], "status": r[4], "date": r[5]} for r in rows]
+
+    def update_invoice_status(self, invoice_id, status):
+        """Update invoice status"""
+        self.cursor.execute("UPDATE invoices SET status = ? WHERE id = ?", (status, invoice_id))
         self.conn.commit()
+
+    def delete_user(self, username):
+        """Delete user and related data (appointments, invoices)"""
+        try:
+            self.cursor.execute("DELETE FROM appointments WHERE patient_username = ?", (username,))
+            self.cursor.execute("DELETE FROM invoices WHERE patient_username = ?", (username,))
+            self.cursor.execute("DELETE FROM users WHERE username = ?", (username,))
+            self.conn.commit()
+            return True, "Xóa người dùng thành công"
+        except Exception as e:
+            return False, f"Lỗi: {str(e)}"
+
+    def update_user(self, username, name=None, role=None, password=None):
+        """Update user info"""
+        fields = []
+        params = []
+        if name is not None:
+            fields.append("name = ?")
+            params.append(name)
+        if role is not None:
+            fields.append("role = ?")
+            params.append(role)
+        if password is not None:
+            hashed = PasswordHasher.hash_password(password)
+            fields.append("password = ?")
+            params.append(hashed)
+        
+        if not fields:
+            return False, "Không có gì để cập nhật"
+        
+        params.append(username)
+        sql = f"UPDATE users SET {', '.join(fields)} WHERE username = ?"
+        try:
+            self.cursor.execute(sql, params)
+            self.conn.commit()
+            return True, "Cập nhật thành công"
+        except Exception as e:
+            return False, f"Lỗi: {str(e)}"
+
+    def assign_appointment_doctor(self, appointment_id, doctor_username):
+        """Assign a doctor to an appointment"""
+        self.cursor.execute("UPDATE appointments SET doctor_username = ? WHERE id = ?", (doctor_username, appointment_id))
+        self.conn.commit()
+
+    def update_appointment_status(self, appointment_id, status):
+        """Update appointment status"""
+        self.cursor.execute("UPDATE appointments SET status = ? WHERE id = ?", (status, appointment_id))
+        self.conn.commit()
+
+    def delete_medicine(self, medicine_name):
+        """Delete a medicine from inventory"""
+        try:
+            self.cursor.execute("DELETE FROM medicines WHERE name = ?", (medicine_name,))
+            self.conn.commit()
+            return True, "Xóa thuốc thành công"
+        except Exception as e:
+            return False, f"Lỗi: {str(e)}"
+
+    def update_medicine_quantity(self, medicine_name, quantity):
+        """Update medicine quantity"""
+        try:
+            self.cursor.execute("UPDATE medicines SET quantity = ? WHERE name = ?", (quantity, medicine_name))
+            self.conn.commit()
+            return True, "Cập nhật số lượng thành công"
+        except Exception as e:
+            return False, f"Lỗi: {str(e)}"
