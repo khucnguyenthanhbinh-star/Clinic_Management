@@ -3,7 +3,7 @@ from tkinter import ttk
 
 # Import các View
 from ui.patient import book_appointment, view_appointments, medical_records, update_info, payment, patient_dashboard
-from ui.doctor import examination_list, examination, prescription, patient_records
+from ui.doctor import examination_list, examination, patient_records
 from ui.admin import manage_doctors, manage_patients, manage_appointments, manage_medicines, manage_users, reports
 from ui.receptionist import create_invoice, send_notification, book_appointment as rec_book # Import book cho lễ tân
 
@@ -66,7 +66,6 @@ class MainWindow(ttk.Frame):
         elif role == "doctor":
             self.add_btn(parent, "Danh sách khám", lambda: self.switch_view(examination_list.ExaminationListView))
             self.add_btn(parent, "Khám bệnh", lambda: self.switch_view(examination.ExaminationView))
-            self.add_btn(parent, "Kê đơn thuốc", lambda: self.switch_view(prescription.PrescriptionView))
             self.add_btn(parent, "Tra cứu hồ sơ BN", lambda: self.switch_view(patient_records.PatientRecordsView))
 
         elif role == "admin":

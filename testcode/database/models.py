@@ -146,10 +146,18 @@ class ClinicDatabase:
     def close(self):
         self.conn.close()
 
-    # ... (Các hàm cũ giữ nguyên) ...
-
-    # --- BỔ SUNG HÀM HỦY LỊCH ---
     def cancel_appointment(self, appointment_id):
         # Cập nhật trạng thái thành 'Đã hủy'
         self.cursor.execute("UPDATE appointments SET status = 'Đã hủy' WHERE id = ?", (appointment_id,))
+        self.conn.commit()
+
+    def finish_examination(self, appointment_id, full_report_text):
+        """
+        Lưu kết quả khám vào cột 'reason' (hoặc cột result nếu có)
+        và chuyển trạng thái thành 'Hoan thanh'
+        """
+        self.cursor.execute(
+            "UPDATE appointments SET status = 'Hoan thanh', reason = ? WHERE id = ?", 
+            (full_report_text, appointment_id)
+        )
         self.conn.commit()
