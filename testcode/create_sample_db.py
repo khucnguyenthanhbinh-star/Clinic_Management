@@ -62,7 +62,7 @@ def create_sample_data():
     medicines = [("Paracetamol", 500, "viên"), ("Amoxicillin", 200, "viên"), ("Vitamin C", 100, "lọ")]
     cursor.executemany("INSERT INTO medicines VALUES (?, ?, ?)", medicines)
 
-    # 4. DỮ LIỆU LỊCH HẸN & LỊCH SỬ KHÁM (QUAN TRỌNG)
+    # 4. DỮ LIỆU LỊCH HẸN & LỊCH SỬ KHÁM 
     
     # Mốc thời gian
     today = datetime.now()

@@ -8,6 +8,14 @@ class MedicalRecordsView(ttk.Frame):
         super().__init__(parent)
         self.controller = controller
         
+        # Định nghĩa danh sách địa chỉ khớp với phần Đặt lịch
+        self.clinic_addresses = {
+            "CS1": "Số 123 Cầu Giấy, Q. Cầu Giấy, TP. Hà Nội",
+            "CS2": "Số 45 Hàng Bài, Q. Hoàn Kiếm, TP. Hà Nội",
+            "CS3": "Số 88 Nguyễn Văn Linh, TP. Đà Nẵng"
+        }
+        self.default_address = "Trụ sở chính: TP. Hà Nội"
+
         # Layout chính
         self.paned = tk.PanedWindow(self, orient="horizontal", sashwidth=5, bg="#dddddd")
         self.paned.pack(fill="both", expand=True, padx=10, pady=10)
@@ -51,7 +59,7 @@ class MedicalRecordsView(ttk.Frame):
         self.paper = tk.Frame(self.detail_content, bg="white", padx=40, pady=40)
         
         self.paper.bind("<Configure>", lambda e: self.detail_content.configure(scrollregion=self.detail_content.bbox("all")))
-        self.detail_content.create_window((0, 0), window=self.paper, anchor="nw", width=750) # Tăng độ rộng
+        self.detail_content.create_window((0, 0), window=self.paper, anchor="nw", width=750)
         self.detail_content.configure(yscrollcommand=self.detail_scrollbar.set)
         
         self.detail_content.pack(side="left", fill="both", expand=True)
@@ -72,9 +80,10 @@ class MedicalRecordsView(ttk.Frame):
             if "]" in raw_reason:
                 parts = raw_reason.split("]")
                 for p in parts:
-                    if "BS" in p: doc_name = p.replace("[", "").strip()
+                    if "BS" in p or "ThS" in p: doc_name = p.replace("[", "").strip()
                     elif "BOOK" not in p and "BN" not in p and "[" not in p: diagnosis = p.strip()
             
+            # Lưu raw_reason vào tags để dùng lại khi click
             self.tree.insert("", "end", values=(apt['date'], doc_name, diagnosis), tags=(raw_reason, doc_name))
 
     def on_select_record(self, event):
@@ -82,12 +91,25 @@ class MedicalRecordsView(ttk.Frame):
         if not selected: return
         item = self.tree.item(selected[0])
         date, doctor, diagnosis = item['values']
-        self.render_medical_report(date, doctor, diagnosis)
+        
+        # Lấy chuỗi gốc chứa mã CS (Ví dụ: [CS1])
+        raw_reason = item['tags'][0]
+        
+        self.render_medical_report(date, doctor, diagnosis, raw_reason)
 
-    def render_medical_report(self, date, doctor, diagnosis):
+    def render_medical_report(self, date, doctor, diagnosis, raw_reason):
         for widget in self.paper.winfo_children(): widget.destroy()
 
-        # Mock Data
+        # --- XỬ LÝ ĐỊA CHỈ ĐỘNG ---
+        current_address = self.default_address
+        if "[CS1]" in raw_reason:
+            current_address = self.clinic_addresses["CS1"]
+        elif "[CS2]" in raw_reason:
+            current_address = self.clinic_addresses["CS2"]
+        elif "[CS3]" in raw_reason:
+            current_address = self.clinic_addresses["CS3"]
+
+        # Mock Data Y tế
         bp = f"{random.randint(110, 130)}/{random.randint(70, 85)}"
         pulse = str(random.randint(70, 90))
         temp = "36.5"
@@ -109,11 +131,13 @@ class MedicalRecordsView(ttk.Frame):
             prescription = [("Paracetamol 500mg", "10 Viên", "Uống khi đau"), ("Vitamin tổng hợp", "1 Lọ", "1 viên mỗi sáng"), ("Berberin", "20 Viên", "Uống khi đau bụng")]
             advise = "Ăn uống điều độ, nghỉ ngơi hợp lý."
 
-        # --- GIAO DIỆN PHIẾU KHÁM (ĐÃ SỬA TÊN) ---
+        # --- VẼ GIAO DIỆN PHIẾU KHÁM ---
         
-        # SỬA TẠI ĐÂY: Tên phòng khám chung chung
+        # Tên phòng khám
         ttk.Label(self.paper, text="PHÒNG KHÁM ĐA KHOA QUỐC TẾ", style="Header.TLabel", font=("Arial", 18, "bold")).pack(pady=(0, 5))
-        ttk.Label(self.paper, text="Địa chỉ: 123 Đường Giải Phóng, TP. Hà Nội | Hotline: 1900 1234", style="Normal.TLabel").pack()
+        
+        # ĐỊA CHỈ ĐỘNG (HIỆN ĐÚNG THEO CS ĐÃ KHÁM)
+        ttk.Label(self.paper, text=f"Địa chỉ: {current_address} | Hotline: 1900 1234", style="Normal.TLabel").pack()
         
         ttk.Separator(self.paper, orient="horizontal").pack(fill="x", pady=15)
         
