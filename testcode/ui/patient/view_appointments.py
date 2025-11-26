@@ -1,13 +1,29 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
-from datetime import datetime
+from datetime import datetime, timedelta
 import random
+import webbrowser
+import urllib.parse
 
 class ViewAppointmentsView(ttk.Frame):
     def __init__(self, parent, controller):
         super().__init__(parent)
         self.controller = controller
         
+        # --- BỘ TỪ ĐIỂN DỊCH TRẠNG THÁI ---
+        self.STATUS_MAP = {
+            "Da dat": "Đã đặt",
+            "Unpaid": "Chưa thanh toán",
+            "Hoan thanh": "Hoàn thành",
+            "Paid": "Đã thanh toán",
+            "Da huy": "Đã hủy",
+            "Checked-in": "Đã check-in",
+            "Confirmed": "Đã xác nhận",
+            # Fallback cho trường hợp trong DB đã lỡ lưu có dấu
+            "Đã đặt": "Đã đặt",
+            "Đã hủy": "Đã hủy"
+        }
+
         # --- HEADER ---
         header_frame = tk.Frame(self, bg="white", height=60)
         header_frame.pack(fill="x")
@@ -17,26 +33,24 @@ class ViewAppointmentsView(ttk.Frame):
         paned = tk.PanedWindow(self, orient="horizontal", sashwidth=5, bg="#dddddd")
         paned.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # --- CỘT TRÁI: DANH SÁCH (TABS) ---
+        # --- CỘT TRÁI ---
         left_frame = ttk.Frame(paned)
-        paned.add(left_frame, width=450)
+        paned.add(left_frame, width=480) # Tăng độ rộng để hiển thị chữ tiếng Việt rõ hơn
 
         self.tabs = ttk.Notebook(left_frame)
         self.tabs.pack(fill="both", expand=True)
 
-        # Tab 1: Sắp tới
         self.tab_upcoming = ttk.Frame(self.tabs)
         self.tabs.add(self.tab_upcoming, text="📅 Sắp tới")
         self.tree_up = self.create_treeview(self.tab_upcoming)
 
-        # Tab 2: Lịch sử
         self.tab_history = ttk.Frame(self.tabs)
         self.tabs.add(self.tab_history, text="Hồ sơ cũ")
         self.tree_his = self.create_treeview(self.tab_history)
 
         ttk.Button(left_frame, text="🔄 Làm mới danh sách", command=self.load_data).pack(fill="x", pady=5)
 
-        # --- CỘT PHẢI: CHI TIẾT ---
+        # --- CỘT PHẢI ---
         self.right_frame = tk.Frame(paned, bg="white", relief="sunken", bd=1)
         paned.add(self.right_frame)
         
@@ -59,15 +73,16 @@ class ViewAppointmentsView(ttk.Frame):
         tree.column("id", width=60, anchor="center")
         tree.column("date", width=90, anchor="center")
         tree.column("time", width=70, anchor="center")
-        tree.column("doctor", width=180)
-        tree.column("status", width=100, anchor="center")
+        tree.column("doctor", width=150)
+        tree.column("status", width=120, anchor="center") # Tăng độ rộng cột trạng thái
         
         tree.pack(fill="both", expand=True, padx=5, pady=5)
         tree.bind("<<TreeviewSelect>>", self.on_select)
         
-        # CẤU HÌNH MÀU SẮC (Thêm cả tiếng Việt có dấu)
+        # Cấu hình màu sắc dựa trên MÃ GỐC (Raw Status) trong Database
+        # Vì ta sẽ lưu Mã Gốc vào tags để xử lý logic
         tree.tag_configure("Da dat", foreground="#007bff") 
-        tree.tag_configure("Đã đặt", foreground="#007bff") # <--- Thêm dòng này
+        tree.tag_configure("Đã đặt", foreground="#007bff")
         
         tree.tag_configure("Unpaid", foreground="red")     
         
@@ -75,22 +90,21 @@ class ViewAppointmentsView(ttk.Frame):
         tree.tag_configure("Paid", foreground="green")
         
         tree.tag_configure("Da huy", foreground="gray")
-        tree.tag_configure("Đã hủy", foreground="gray") # <--- Thêm dòng này
+        tree.tag_configure("Đã hủy", foreground="gray")
         
         tree.tag_configure("Checked-in", foreground="#ffc107")
         
         return tree
 
     def load_data(self):
-        # Xóa dữ liệu cũ
         for item in self.tree_up.get_children(): self.tree_up.delete(item)
         for item in self.tree_his.get_children(): self.tree_his.delete(item)
         
         apts = self.controller.db.get_appointments(self.controller.auth.current_user)
         today = datetime.now().strftime("%Y-%m-%d")
-
-        # Danh sách các trạng thái được coi là "Sắp tới"
-        upcoming_statuses = ["Da dat", "Đã đặt", "Unpaid", "Checked-in", "Confirmed"]
+        
+        # Nhóm trạng thái được coi là sắp tới
+        upcoming_keys = ["Da dat", "Đã đặt", "Unpaid", "Checked-in", "Confirmed"]
 
         for apt in apts:
             reason = apt['reason']
@@ -105,23 +119,20 @@ class ViewAppointmentsView(ttk.Frame):
                         if "BS" in p or "ThS" in p: doc_name = p.replace("[", "").strip()
                 except: pass
 
-            status = apt['status']
+            raw_status = apt['status'] # Lấy mã gốc: "Hoan thanh"
+            display_status = self.STATUS_MAP.get(raw_status, raw_status) # Dịch sang: "Hoàn thành"
+            
             date = apt['date']
+            is_upcoming = (date >= today) and (raw_status in upcoming_keys)
             
-            # LOGIC PHÂN LOẠI MỚI:
-            # 1. Nếu ngày >= hôm nay VÀ Trạng thái thuộc nhóm "Sắp tới" -> Tab Sắp tới
-            # 2. Còn lại -> Tab Hồ sơ cũ
-            
-            is_upcoming = (date >= today) and (status in upcoming_statuses)
-            
-            values = (booking_code, date, apt['time'], doc_name, status)
+            # Hiển thị display_status lên bảng, nhưng lưu raw_status vào tags để dùng cho màu sắc
+            values = (booking_code, date, apt['time'], doc_name, display_status)
             tags_data = (reason, str(apt['id'])) 
             
-            # Tag màu sắc chính là status (ví dụ: "Đã đặt")
             if is_upcoming:
-                self.tree_up.insert("", "end", values=values, tags=(status, *tags_data))
+                self.tree_up.insert("", "end", values=values, tags=(raw_status, *tags_data))
             else:
-                self.tree_his.insert("", "end", values=values, tags=(status, *tags_data))
+                self.tree_his.insert("", "end", values=values, tags=(raw_status, *tags_data))
 
     def on_select(self, event):
         tree = event.widget
@@ -133,11 +144,12 @@ class ViewAppointmentsView(ttk.Frame):
         
         item = tree.item(selection[0])
         vals = item['values']
-        tags = item['tags']
+        tags = item['tags'] # tags[0] là raw_status
         
         data = {
             "code": vals[0], "date": vals[1], "time": vals[2],
-            "doctor": vals[3], "status": vals[4],
+            "doctor": vals[3], 
+            "status_raw": tags[0], # Dùng mã gốc để xử lý logic (ẩn/hiện nút)
             "reason": tags[1], "real_id": tags[2]
         }
         self.render_detail(data)
@@ -145,13 +157,11 @@ class ViewAppointmentsView(ttk.Frame):
     def render_detail(self, data):
         for w in self.detail_container.winfo_children(): w.destroy()
         
-        # HEADER
         top = tk.Frame(self.detail_container, bg="white")
         top.pack(fill="x")
         tk.Label(top, text="PHIẾU KHÁM ĐIỆN TỬ", font=("Arial", 10), bg="white", fg="gray").pack(anchor="w")
         tk.Label(top, text=f"MÃ SỐ: {data['code']}", font=("Arial", 18, "bold"), bg="white", fg="#007bff").pack(anchor="w")
         
-        # QR CODE
         qr_frame = tk.Frame(self.detail_container, bg="white", pady=10)
         qr_frame.pack(fill="x")
         
@@ -162,23 +172,20 @@ class ViewAppointmentsView(ttk.Frame):
         info_f = tk.Frame(qr_frame, bg="white", padx=20)
         info_f.pack(side="left", fill="both", expand=True)
         
-        # Lấy tên user an toàn hơn
-        try:
-            user_name = self.controller.db.get_user(self.controller.auth.current_user)['name']
+        try: user_name = self.controller.db.get_user(self.controller.auth.current_user)['name']
         except: user_name = "Bệnh nhân"
 
         tk.Label(info_f, text=f"Bệnh nhân: {user_name}", bg="white", font=("Arial", 11, "bold")).pack(anchor="w")
         tk.Label(info_f, text=f"Ngày: {data['time']} - {data['date']}", bg="white", font=("Arial", 11)).pack(anchor="w", pady=5)
         tk.Label(info_f, text=f"Địa điểm: Cơ sở 1 - Tầng 2", bg="white", fg="gray").pack(anchor="w")
 
-        # STEPPER TRẠNG THÁI
+        # STEPPER
         step_frame = tk.LabelFrame(self.detail_container, text="Trạng thái hồ sơ", bg="white", padx=10, pady=10)
         step_frame.pack(fill="x", pady=10)
         
         steps = ["Đã đặt", "Xác nhận", "Đã đến", "Hoàn thành"]
-        current_st = data['status']
+        current_st = data['status_raw'] # Dùng mã gốc để so sánh
         
-        # Map status tiếng Việt sang index
         st_idx = 0
         if current_st == "Unpaid": st_idx = 0
         elif current_st in ["Da dat", "Đã đặt", "Paid"]: st_idx = 1
@@ -195,14 +202,13 @@ class ViewAppointmentsView(ttk.Frame):
                 icon = "◉" if i <= st_idx else "○"
                 tk.Label(step_frame, text=f"{icon} {step}", fg=color, bg="white", font=font).pack(side="left", padx=10)
 
-        # ACTIONS
         action_frame = tk.Frame(self.detail_container, bg="white")
         action_frame.pack(fill="x", pady=20)
         
         if st_idx != -1 and st_idx < 3:
-            ttk.Button(action_frame, text="📅 Đổi ngày/giờ", command=lambda: self.action_reschedule(data)).pack(side="left", padx=5, fill="x", expand=True)
+            ttk.Button(action_frame, text="📅 Đổi ngày/giờ", command=lambda: self.show_reschedule_dialog(data)).pack(side="left", padx=5, fill="x", expand=True)
             ttk.Button(action_frame, text="❌ Hủy lịch", command=lambda: self.action_cancel(data)).pack(side="left", padx=5, fill="x", expand=True)
-            ttk.Button(action_frame, text="Add Calendar", command=lambda: self.action_add_calendar(data)).pack(side="left", padx=5)
+            ttk.Button(action_frame, text="Thêm vào Lịch", command=lambda: self.action_add_calendar(data)).pack(side="left", padx=5)
 
         today = datetime.now().strftime("%Y-%m-%d")
         if data['date'] == today and st_idx < 2 and st_idx != -1:
@@ -228,23 +234,45 @@ class ViewAppointmentsView(ttk.Frame):
                 messagebox.showinfo("Thành công", "Đã hủy lịch hẹn.")
                 self.load_data(); self.detail_container.pack_forget()
 
-    def action_reschedule(self, data):
-        new_date = simpledialog.askstring("Đổi lịch", "Nhập ngày mới (YYYY-MM-DD):", parent=self)
-        if new_date:
+    def show_reschedule_dialog(self, data):
+        dialog = tk.Toplevel(self); dialog.title("Đổi lịch khám"); dialog.geometry("350x250")
+        ttk.Label(dialog, text="Chọn thời gian mới:", font=("Arial", 12, "bold")).pack(pady=10)
+        
+        ttk.Label(dialog, text="Ngày khám:").pack(anchor="w", padx=30)
+        date_combo = ttk.Combobox(dialog, state="readonly", width=30)
+        dates = []; real_dates = []
+        for i in range(1, 31):
+            d = datetime.now() + timedelta(days=i)
+            dates.append(d.strftime("%d/%m/%Y (%A)")); real_dates.append(d.strftime("%Y-%m-%d"))
+        date_combo['values'] = dates; date_combo.current(0); date_combo.pack(pady=5)
+        
+        ttk.Label(dialog, text="Giờ khám:").pack(anchor="w", padx=30)
+        time_combo = ttk.Combobox(dialog, state="readonly", width=30)
+        time_combo['values'] = ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "14:00", "14:30", "15:00", "15:30", "16:00"]
+        time_combo.current(0); time_combo.pack(pady=5)
+        
+        def confirm():
             try:
-                # Update status về 'Đã đặt' để quay lại tab Sắp tới
-                self.controller.db.cursor.execute("UPDATE appointments SET date = ?, status = 'Đã đặt' WHERE id = ?", (new_date, data['real_id']))
+                self.controller.db.cursor.execute("UPDATE appointments SET date = ?, time = ?, status = 'Đã đặt' WHERE id = ?", 
+                                                  (real_dates[date_combo.current()], time_combo.get(), data['real_id']))
                 self.controller.db.conn.commit()
-                messagebox.showinfo("Thành công", f"Đã đổi lịch sang ngày {new_date}.")
-                self.load_data(); self.detail_container.pack_forget()
-            except: messagebox.showerror("Lỗi", "Ngày không hợp lệ!")
+                messagebox.showinfo("Thành công", "Đã đổi lịch."); dialog.destroy(); self.load_data(); self.detail_container.pack_forget()
+            except Exception as e: messagebox.showerror("Lỗi", str(e))
+        ttk.Button(dialog, text="Lưu thay đổi", command=confirm).pack(pady=20)
 
     def action_checkin(self, data):
-        messagebox.showinfo("Quét mã", "Vui lòng đưa mã này cho Lễ tân...")
-        self.controller.db.cursor.execute("UPDATE appointments SET status = 'Checked-in' WHERE id = ?", (data['real_id'],))
-        self.controller.db.conn.commit()
+        messagebox.showinfo("Quét mã", "Vui lòng đưa mã này cho Lễ tân..."); 
+        self.controller.db.cursor.execute("UPDATE appointments SET status = 'Checked-in' WHERE id = ?", (data['real_id'],)); 
+        self.controller.db.conn.commit(); 
         messagebox.showinfo("Thành công", "Check-in thành công!"); self.load_data(); self.detail_container.pack_forget()
 
     def action_add_calendar(self, data):
-        url = f"https://calendar.google.com/calendar/render?action=TEMPLATE&text=Kham&dates={data['date']}"
-        top = tk.Toplevel(self); ttk.Label(top, text="Copy link:").pack(); ttk.Entry(top, width=50).pack();
+        try:
+            start_dt = datetime.strptime(f"{data['date']} {data['time']}", "%Y-%m-%d %H:%M")
+            end_dt = start_dt + timedelta(hours=1)
+            fmt_google = "%Y%m%dT%H%M00"
+            dates_param = f"{start_dt.strftime(fmt_google)}/{end_dt.strftime(fmt_google)}"
+            title = urllib.parse.quote(f"Khám bệnh: {data['doctor']}")
+            url = f"https://calendar.google.com/calendar/render?action=TEMPLATE&text={title}&dates={dates_param}"
+            webbrowser.open(url)
+        except: messagebox.showerror("Lỗi", "Không thể tạo link")
